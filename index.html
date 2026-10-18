@@ -2,25 +2,23 @@
 <html lang="ko">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>데스크톱 관제</title>
+<title>장비 현황</title>
 <style>
 body{font:16px system-ui;margin:40px;color:#182230;background:#f5f7fa}
-main{max-width:1100px;margin:auto}h1{font-size:26px}
+main{max-width:1100px;margin:auto}
 table{width:100%;border-collapse:collapse;background:white}
 th,td{padding:14px;text-align:left;border-bottom:1px solid #ddd}
-th{background:#e9eef5}#message{color:#596579}td:last-child{font-weight:bold}
+th{background:#e9eef5}#message{color:#596579}#message:empty{display:none}td:last-child{font-weight:bold}
 .status{display:inline-block;padding:4px 10px;border-radius:999px;white-space:nowrap;color:#475569;background:#e2e8f0}
 .status[data-state="사용중"]{color:#166534;background:#dcfce7}
 .status[data-state="부재중"]{color:#9a3412;background:#ffedd5}
 </style>
 <main>
-<h1>데스크톱 관제</h1>
-<p id="message">BE에 연결 중…</p>
+<p id="message"></p>
 <table>
-<thead><tr><th>장치명</th><th>IP</th><th>MAC</th><th>WS 포트¹</th><th>CPU</th><th>MEM</th><th>마지막 동작</th><th>상태</th></tr></thead>
+<thead><tr><th>장치명</th><th>IP</th><th>MAC</th><th>WS 포트</th><th>CPU</th><th>MEM</th><th>마지막 동작</th><th>상태</th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
-<p>¹ 원격 작업을 위한 예약 정보이며, 아직 WebSocket 서버는 실행하지 않습니다.</p>
 </main>
 <script>
 const api = new URL(location.href);
@@ -48,7 +46,7 @@ async function refresh() {
       badge.dataset.state = agent.status;
       badge.textContent = agent.status;
     }
-    message.textContent = agents.length ? agents.length + "대 · 1초마다 갱신" : "등록된 장비가 없습니다.";
+    message.textContent = "";
   } catch (error) {
     rows.replaceChildren();
     message.textContent = "BE 연결 실패: " + error.message;
