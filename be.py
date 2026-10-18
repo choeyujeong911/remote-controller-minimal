@@ -52,6 +52,7 @@ class Agent(BaseModel):
 
 class Status(BaseModel):
     status: Literal["사용중", "부재중"]
+    idle_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     cpu_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     memory_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
 
@@ -84,8 +85,8 @@ def agents():
     now = monotonic()
     for row in rows:
         metrics, received = latest.get(row["agent_id"], ({"status": "확인 중"}, None))
-        row.update(cpu_percent=None, memory_percent=None)
+        row.update(cpu_percent=None, memory_percent=None, idle_seconds=None)
         row.update(metrics)
         if received is not None and now - received > 5:
-            row.update(status="연결 끊김", cpu_percent=None, memory_percent=None)
+            row.update(status="연결 끊김", cpu_percent=None, memory_percent=None, idle_seconds=None)
     return rows

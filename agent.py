@@ -26,12 +26,12 @@ class LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
 
 
-def usage_status():
+def idle_seconds():
     info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
     if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
         raise OSError("마지막 입력 시각 조회 실패")
     idle_ms = (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF
-    return "사용중" if idle_ms < IDLE_SECONDS * 1000 else "부재중"
+    return idle_ms / 1000
 
 
 def post(path, body):
@@ -68,8 +68,10 @@ if __name__ == "__main__":
                 if not registered:
                     register()
                     registered = True
+                idle = idle_seconds()
                 post(f"/api/agents/{AGENT_ID}/status", {
-                    "status": usage_status(), "cpu_percent": psutil.cpu_percent(),
+                    "status": "사용중" if idle < IDLE_SECONDS else "부재중",
+                    "idle_seconds": idle, "cpu_percent": psutil.cpu_percent(),
                     "memory_percent": psutil.virtual_memory().percent,
                 })
             except (OSError, URLError, ValueError) as error:

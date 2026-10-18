@@ -14,7 +14,7 @@ th{background:#e9eef5}#message{color:#596579}td:last-child{font-weight:bold}
 <h1>데스크톱 관제</h1>
 <p id="message">BE에 연결 중…</p>
 <table>
-<thead><tr><th>장치명</th><th>IP</th><th>MAC</th><th>WS 포트¹</th><th>CPU</th><th>MEM</th><th>상태</th></tr></thead>
+<thead><tr><th>장치명</th><th>IP</th><th>MAC</th><th>WS 포트¹</th><th>CPU</th><th>MEM</th><th>마지막 동작</th><th>상태</th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
 <p>¹ 원격 작업을 위한 예약 정보이며, 아직 WebSocket 서버는 실행하지 않습니다.</p>
@@ -36,7 +36,8 @@ async function refresh() {
     for (const agent of agents) {
       const row = rows.insertRow();
       for (const value of [agent.device_name, agent.ip_address, agent.mac_address,
-        agent.ws_port, percent(agent.cpu_percent), percent(agent.memory_percent), agent.status]) {
+        agent.ws_port, percent(agent.cpu_percent), percent(agent.memory_percent),
+        agent.idle_seconds == null ? "—" : Math.floor(agent.idle_seconds) + "초 전", agent.status]) {
         row.insertCell().textContent = value;
       }
     }
