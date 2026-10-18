@@ -52,6 +52,8 @@ class Agent(BaseModel):
 
 class Status(BaseModel):
     status: Literal["사용중", "부재중"]
+    cpu_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    memory_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
 
 
 @app.post("/api/agents/register")
@@ -70,7 +72,7 @@ def register(agent: Agent):
 async def report(agent_id: UUID, body: Status):
     if str(agent_id) not in known:
         raise HTTPException(404, "먼저 장비를 등록하세요.")
-    latest[str(agent_id)] = (body.status, monotonic())
+    latest[str(agent_id)] = (body.model_dump(), monotonic())
     return {"ok": True}
 
 
@@ -81,8 +83,9 @@ def agents():
         rows = cur.fetchall()
     now = monotonic()
     for row in rows:
-        status, received = latest.get(row["agent_id"], ("확인 중", None))
-        age = None if received is None else max(0, now - received)
-        row.update(status="연결 끊김" if age is not None and age > 5 else status,
-                   seconds_since_report=None if age is None else round(age, 1))
+        metrics, received = latest.get(row["agent_id"], ({"status": "확인 중"}, None))
+        row.update(cpu_percent=None, memory_percent=None)
+        row.update(metrics)
+        if received is not None and now - received > 5:
+            row.update(status="연결 끊김", cpu_percent=None, memory_percent=None)
     return rows
