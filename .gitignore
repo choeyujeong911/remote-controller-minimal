@@ -1,0 +1,4 @@
+.agent-id
+.env
+__pycache__/
+.venv/

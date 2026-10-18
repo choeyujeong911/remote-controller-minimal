@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>데스크톱 관제</title>
+<style>
+body{font:16px system-ui;margin:40px;color:#182230;background:#f5f7fa}
+main{max-width:1100px;margin:auto}h1{font-size:26px}
+table{width:100%;border-collapse:collapse;background:white}
+th,td{padding:14px;text-align:left;border-bottom:1px solid #ddd}
+th{background:#e9eef5}#message{color:#596579}td:last-child{font-weight:bold}
+</style>
+<main>
+<h1>데스크톱 관제</h1>
+<p id="message">BE에 연결 중…</p>
+<table>
+<thead><tr><th>장치명</th><th>IP</th><th>MAC</th><th>WS 포트¹</th><th>최근 보고</th><th>상태</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+<p>¹ 원격 작업을 위한 예약 정보이며, 아직 WebSocket 서버는 실행하지 않습니다.</p>
+</main>
+<script>
+const api = new URL(location.href);
+api.port = "8000";
+api.pathname = "/api/agents";
+api.search = "";
+const rows = document.querySelector("#rows");
+const message = document.querySelector("#message");
+async function refresh() {
+  try {
+    const response = await fetch(api, {signal: AbortSignal.timeout(3000)});
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const agents = await response.json();
+    rows.replaceChildren();
+    for (const agent of agents) {
+      const row = rows.insertRow();
+      for (const value of [agent.device_name, agent.ip_address, agent.mac_address,
+        agent.ws_port, agent.seconds_since_report === null ? "—" :
+        agent.seconds_since_report + "초 전", agent.status]) {
+        row.insertCell().textContent = value;
+      }
+    }
+    message.textContent = agents.length ? agents.length + "대 · 1초마다 갱신" : "등록된 장비가 없습니다.";
+  } catch (error) {
+    rows.replaceChildren();
+    message.textContent = "BE 연결 실패: " + error.message;
+  } finally {
+    setTimeout(refresh, 1000);
+  }
+}
+refresh();
+</script>
+</html>
