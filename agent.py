@@ -7,19 +7,17 @@ import sys
 import time
 import uuid
 from ctypes import wintypes
-from pathlib import Path
 from urllib.error import URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 import psutil
 
 SERVER = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
 IDLE_SECONDS = 10  # 디버깅용 부재 기준
-ID_FILE = Path(__file__).with_name(".agent-id")
-if not ID_FILE.exists():
-    ID_FILE.write_text(str(uuid.uuid4()), encoding="utf-8")
-AGENT_ID = str(uuid.UUID(ID_FILE.read_text(encoding="utf-8").strip()))
+DEVICE_NAME = socket.gethostname()
+MAC_ADDRESS = os.getenv("AGENT_MAC", ":".join(f"{uuid.getnode():012X}"[i:i + 2] for i in range(0, 12, 2))).upper()
+AGENT_ID = f"{DEVICE_NAME}-{MAC_ADDRESS.replace(':', '')[-6:]}"
 
 
 class LASTINPUTINFO(ctypes.Structure):
@@ -47,14 +45,13 @@ def register():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.connect((host, 8000))
         ip = sock.getsockname()[0]
-    mac = ":".join(f"{uuid.getnode():012x}"[i:i + 2] for i in range(0, 12, 2))
     post("/api/agents/register", {
-        "agent_id": AGENT_ID, "device_name": socket.gethostname(),
-        "mac_address": os.getenv("AGENT_MAC", mac),
+        "agent_id": AGENT_ID, "device_name": DEVICE_NAME,
+        "mac_address": MAC_ADDRESS,
         "ip_address": os.getenv("AGENT_IP", ip),
         "ws_port": int(os.getenv("AGENT_WS_PORT", "8765")),
     })
-    print(f"등록: {socket.gethostname()} ({AGENT_ID})", flush=True)
+    print(f"등록: {DEVICE_NAME} ({AGENT_ID})", flush=True)
 
 
 if __name__ == "__main__":
@@ -69,7 +66,7 @@ if __name__ == "__main__":
                     register()
                     registered = True
                 idle = idle_seconds()
-                post(f"/api/agents/{AGENT_ID}/status", {
+                post(f"/api/agents/{quote(AGENT_ID, safe='')}/status", {
                     "status": "사용중" if idle < IDLE_SECONDS else "부재중",
                     "idle_seconds": idle, "cpu_percent": psutil.cpu_percent(),
                     "memory_percent": psutil.virtual_memory().percent,

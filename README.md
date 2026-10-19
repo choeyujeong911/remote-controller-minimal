@@ -27,8 +27,11 @@ python -m pip install psutil
 python agent.py http://중앙PC의LAN주소:8000
 ```
 
-최초 실행 시 .agent-id를 생성한다. **agent.py만 복사하고 .agent-id는 복사하지 않는다.**
-같은 PC에서 재실행하면 같은 ID를 사용한다. Ctrl+C로 종료한다.
+ID는 실행 시 {장치명}-{MAC 주소 끝 6자리}로 결정한다.
+예: 장치명 DESKTOP-01, MAC AA:BB:CC:DD:EE:FF → DESKTOP-01-DDEEFF.
+MAC 구분자는 제거하고 6자리는 대문자로 사용한다. AGENT_MAC 설정도 ID 생성에 반영한다.
+장치명·MAC이 같으면 재실행해도 같은 ID이며, 둘 중 하나가 바뀌면 ID도 바뀐다.
+기존 .agent-id 파일은 더 이상 읽거나 쓰지 않으므로 남아 있어도 무시한다. Ctrl+C로 종료한다.
 
 에이전트는 시작할 때 장비를 등록하고, 정상 통신 시 1초마다 사용 상태와 시스템 전체 CPU·메모리 사용률(%)을 함께 보고한다.
 CPU는 직전 측정 이후 사용률, MEM은 물리 메모리 사용률이다. 첫 보고 전 약 1초간 CPU 측정 기준을 준비한다.
@@ -46,7 +49,7 @@ $env:AGENT_WS_PORT = "8765"
 
 ## 저장과 상태
 
-- MariaDB: agent_id, 장치명, MAC, IP, 예약된 WebSocket 포트만 저장.
+- MariaDB: agent_id(VARCHAR(262), 기본키), 장치명, MAC, IP, 예약된 WebSocket 포트만 저장.
 - BE 메모리: 최신 사용 상태, CPU·메모리 사용률, 마지막 입력 이후 경과 시간과 수신 시각. 이력은 저장하지 않음.
 - FE: 1초마다 BE 조회. CPU·MEM 사용률과 마지막 동작(초·분·시간 전)을 표시하며 최근 보고 열은 없다.
   마지막 동작은 보고 시점의 키보드·마우스 입력 유휴 시간(idle_seconds)을 초·분·시간 단위로 내림하여 표시한다(10000초 → 2시간 전).

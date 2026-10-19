@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from ipaddress import IPv4Address
 from time import monotonic
 from typing import Literal
-from uuid import UUID
 
 import pymysql
 from fastapi import FastAPI, HTTPException
@@ -28,7 +27,7 @@ def db():
 async def lifespan(app):
     with db() as conn, conn.cursor() as cur:
         cur.execute("""CREATE TABLE IF NOT EXISTS agents (
-            agent_id CHAR(36) PRIMARY KEY, device_name VARCHAR(255) NOT NULL,
+            agent_id VARCHAR(262) PRIMARY KEY, device_name VARCHAR(255) NOT NULL,
             mac_address CHAR(17) NOT NULL, ip_address VARCHAR(15) NOT NULL,
             ws_port INT NOT NULL)""")
         cur.execute("SELECT agent_id FROM agents")
@@ -44,7 +43,7 @@ app.add_middleware(
 
 
 class Agent(BaseModel):
-    agent_id: UUID
+    agent_id: str = Field(min_length=8, max_length=262, pattern=r"^[^/]+-[0-9A-F]{6}$")
     device_name: str = Field(min_length=1, max_length=255)
     mac_address: str = Field(pattern=r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
     ip_address: IPv4Address
@@ -66,15 +65,15 @@ def register(agent: Agent):
             ON DUPLICATE KEY UPDATE device_name=VALUES(device_name),
             mac_address=VALUES(mac_address), ip_address=VALUES(ip_address),
             ws_port=VALUES(ws_port)""", tuple(values.values()))
-    known.add(str(agent.agent_id))
+    known.add(agent.agent_id)
     return {"agent_id": agent.agent_id}
 
 
 @app.post("/api/agents/{agent_id}/status")
-async def report(agent_id: UUID, body: Status):
-    if str(agent_id) not in known:
+async def report(agent_id: str, body: Status):
+    if agent_id not in known:
         raise HTTPException(404, "먼저 장비를 등록하세요.")
-    latest[str(agent_id)] = (body.model_dump(), monotonic())
+    latest[agent_id] = (body.model_dump(), monotonic())
     return {"ok": True}
 
 
@@ -93,9 +92,9 @@ def agents():
     return rows
 
 @app.post("/api/agents/{agent_id}/wake")
-def wake(agent_id: UUID):
+def wake(agent_id: str):
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT mac_address FROM agents WHERE agent_id=%s", (str(agent_id),))
+        cur.execute("SELECT mac_address FROM agents WHERE agent_id=%s", (agent_id,))
         agent = cur.fetchone()
     if not agent:
         raise HTTPException(404, "등록되지 않은 장비입니다.")

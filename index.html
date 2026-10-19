@@ -35,7 +35,7 @@ const ago = seconds => seconds == null ? "—" : seconds < 60 ? Math.floor(secon
 async function wake(agent, button) {
   button.disabled = true;
   try {
-    const response = await fetch(api + "/" + agent.agent_id + "/wake", {method: "POST", signal: AbortSignal.timeout(5000)});
+    const response = await fetch(api + "/" + encodeURIComponent(agent.agent_id) + "/wake", {method: "POST", signal: AbortSignal.timeout(5000)});
     if (!response.ok) throw new Error("HTTP " + response.status);
     alert(agent.device_name + ": 매직 패킷을 전송했습니다.");
   } catch (error) {
