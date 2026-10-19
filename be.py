@@ -1,4 +1,5 @@
 import os
+import socket
 from contextlib import asynccontextmanager
 from ipaddress import IPv4Address
 from time import monotonic
@@ -90,3 +91,20 @@ def agents():
         if received is not None and now - received > 5:
             row.update(status="연결 끊김", cpu_percent=None, memory_percent=None, idle_seconds=None)
     return rows
+
+@app.post("/api/agents/{agent_id}/wake")
+def wake(agent_id: UUID):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT mac_address FROM agents WHERE agent_id=%s", (str(agent_id),))
+        agent = cur.fetchone()
+    if not agent:
+        raise HTTPException(404, "등록되지 않은 장비입니다.")
+    packet = b"\xff" * 6 + bytes.fromhex(agent["mac_address"].replace(":", "")) * 16
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.settimeout(2)
+            sock.sendto(packet, (os.getenv("WOL_BROADCAST", "255.255.255.255"), 9))
+    except OSError as error:
+        raise HTTPException(502, "매직 패킷 전송 실패") from error
+    return {"ok": True}
