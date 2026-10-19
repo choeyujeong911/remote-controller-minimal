@@ -13,7 +13,9 @@ th{background:#e9eef5}#message{color:#596579}#message:empty{display:none}td:last
 .status[data-state="사용중"]{color:#166534;background:#dcfce7}
 .status[data-state="부재중"]{color:#9a3412;background:#ffedd5}
 button{font:22px system-ui;line-height:1;padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;cursor:pointer}
-button:hover{background:#e0f2fe;color:#0369a1}button:disabled{opacity:.5;cursor:wait}
+button[data-action="wake"]{background:#dcfce7;color:#166534;border-color:#86efac}
+button[data-action="shutdown"]{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+button:hover:not(:disabled){filter:brightness(.94)}button:disabled{opacity:.5;cursor:wait}
 </style>
 <main>
 <p id="message"></p>
@@ -32,16 +34,22 @@ const message = document.querySelector("#message");
 const percent = value => value == null ? "—" : value.toFixed(1) + "%";
 const ago = seconds => seconds == null ? "—" : seconds < 60 ? Math.floor(seconds) + "초 전" :
   seconds < 3600 ? Math.floor(seconds / 60) + "분 전" : Math.floor(seconds / 3600) + "시간 전";
-async function wake(agent, button) {
-  button.disabled = true;
+const sending = new Set();
+const powerAction = agent => agent.power_pending ? "" : agent.status === "연결 끊김" ? "wake" :
+  ["사용중", "부재중"].includes(agent.status) ? "shutdown" : "";
+async function setPower(agent, action) {
+  if (sending.has(agent.agent_id)) return;
+  sending.add(agent.agent_id);
   try {
-    const response = await fetch(api + "/" + encodeURIComponent(agent.agent_id) + "/wake", {method: "POST", signal: AbortSignal.timeout(5000)});
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    alert(agent.device_name + ": 매직 패킷을 전송했습니다.");
+    const response = await fetch(api + "/" + encodeURIComponent(agent.agent_id) + "/power", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action}), signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) throw new Error((await response.json()).detail || "HTTP " + response.status);
   } catch (error) {
-    alert("전원 켜기 요청 실패: " + error.message);
+    alert("전원 요청 실패: " + error.message);
   } finally {
-    button.disabled = false;
+    sending.delete(agent.agent_id);
   }
 }
 async function refresh() {
@@ -53,10 +61,14 @@ async function refresh() {
     for (const agent of agents) {
       const row = rows.insertRow();
       const power = row.insertCell().appendChild(document.createElement("button"));
-      power.textContent = "⏻";
-      power.title = agent.device_name + " 전원 켜기";
-      power.setAttribute("aria-label", power.title);
-      power.onclick = () => wake(agent, power);
+      const action = powerAction(agent);
+      power.textContent = agent.power_error ? "!" : "⏻";
+      power.dataset.action = action;
+      power.disabled = !action || sending.has(agent.agent_id);
+      power.title = agent.power_error || (agent.power_pending === "wake" ? "켜기 요청 중" :
+        agent.power_pending === "shutdown" ? "종료 요청 중" : action === "wake" ? "전원 켜기" : action === "shutdown" ? "전원 끄기" : "상태 확인 중");
+      power.setAttribute("aria-label", agent.device_name + " " + power.title);
+      power.onclick = () => { power.disabled = true; setPower(agent, action); };
       for (const value of [agent.device_name, agent.ip_address, agent.mac_address,
         agent.ws_port, percent(agent.cpu_percent), percent(agent.memory_percent),
         ago(agent.idle_seconds)]) {

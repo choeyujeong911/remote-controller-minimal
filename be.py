@@ -1,9 +1,11 @@
+import asyncio
 import os
 import socket
 from contextlib import asynccontextmanager
 from ipaddress import IPv4Address
 from time import monotonic
 from typing import Literal
+from uuid import uuid4
 
 import pymysql
 from fastapi import FastAPI, HTTPException
@@ -13,6 +15,16 @@ from pydantic import BaseModel, Field
 # 장비 정보는 DB, 최신 상태는 메모리에만 저장한다.
 latest = {}
 known = set()
+power_requests = {}
+power_errors = {}
+
+
+def pending_power(agent_id):
+    request = power_requests.get(agent_id, {})
+    if request and monotonic() >= request["expires_at"]:
+        power_requests.pop(agent_id, None)
+        request = {}
+    return request
 
 
 def db():
@@ -51,6 +63,8 @@ class Agent(BaseModel):
 
 
 class Status(BaseModel):
+    command_id: str | None = Field(default=None, max_length=32)
+    command_error: str | None = Field(default=None, max_length=500)
     status: Literal["사용중", "부재중"]
     idle_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     cpu_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
@@ -66,6 +80,8 @@ def register(agent: Agent):
             mac_address=VALUES(mac_address), ip_address=VALUES(ip_address),
             ws_port=VALUES(ws_port)""", tuple(values.values()))
     known.add(agent.agent_id)
+    power_requests.pop(agent.agent_id, None)
+    power_errors.pop(agent.agent_id, None)
     return {"agent_id": agent.agent_id}
 
 
@@ -73,7 +89,18 @@ def register(agent: Agent):
 async def report(agent_id: str, body: Status):
     if agent_id not in known:
         raise HTTPException(404, "먼저 장비를 등록하세요.")
-    latest[agent_id] = (body.model_dump(), monotonic())
+    latest[agent_id] = (body.model_dump(exclude={"command_id", "command_error"}), monotonic())
+    request = pending_power(agent_id)
+    if request.get("action") == "wake":
+        power_requests.pop(agent_id, None)
+    elif request.get("action") == "shutdown":
+        if body.command_id == request["command_id"]:
+            request["delivered"] = True
+            if body.command_error:
+                power_errors[agent_id] = body.command_error
+                power_requests.pop(agent_id, None)
+        elif not request.get("delivered"):
+            return {"ok": True, "command": "shutdown", "command_id": request["command_id"]}
     return {"ok": True}
 
 
@@ -84,15 +111,19 @@ def agents():
         rows = cur.fetchall()
     now = monotonic()
     for row in rows:
+        request = pending_power(row["agent_id"])
         metrics, received = latest.get(row["agent_id"], ({"status": "확인 중"}, None))
         row.update(cpu_percent=None, memory_percent=None, idle_seconds=None)
         row.update(metrics)
         if received is not None and now - received > 5:
             row.update(status="연결 끊김", cpu_percent=None, memory_percent=None, idle_seconds=None)
+            if request.get("delivered"):
+                power_requests.pop(row["agent_id"], None)
+                request = {}
+        row.update(power_pending=request.get("action"), power_error=power_errors.get(row["agent_id"]))
     return rows
 
-@app.post("/api/agents/{agent_id}/wake")
-def wake(agent_id: str):
+def send_wake(agent_id):
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT mac_address FROM agents WHERE agent_id=%s", (agent_id,))
         agent = cur.fetchone()
@@ -106,4 +137,31 @@ def wake(agent_id: str):
             sock.sendto(packet, (os.getenv("WOL_BROADCAST", "255.255.255.255"), 9))
     except OSError as error:
         raise HTTPException(502, "매직 패킷 전송 실패") from error
+    return {"ok": True}
+
+
+class PowerRequest(BaseModel):
+    action: Literal["wake", "shutdown"]
+
+
+@app.post("/api/agents/{agent_id}/power")
+async def power(agent_id: str, body: PowerRequest):
+    if agent_id not in known:
+        raise HTTPException(404, "등록되지 않은 장비입니다.")
+    if pending_power(agent_id):
+        raise HTTPException(409, "전원 요청을 처리 중입니다.")
+    metrics, received = latest.get(agent_id, ({}, None))
+    state = "연결 끊김" if received is not None and monotonic() - received > 5 else metrics.get("status")
+    expected = "wake" if state == "연결 끊김" else "shutdown" if state in ("사용중", "부재중") else None
+    if body.action != expected:
+        raise HTTPException(409, "장비 상태가 바뀌었습니다. 화면을 갱신하세요.")
+    power_errors.pop(agent_id, None)
+    power_requests[agent_id] = {"action": body.action, "command_id": uuid4().hex,
+                                "expires_at": monotonic() + (15 if body.action == "wake" else 30)}
+    if body.action == "wake":
+        try:
+            await asyncio.to_thread(send_wake, agent_id)
+        except Exception:
+            power_requests.pop(agent_id, None)
+            raise
     return {"ok": True}

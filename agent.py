@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 import uuid
@@ -39,6 +40,17 @@ def post(path, body):
         return json.load(response)
 
 
+def execute_command(response, result):
+    if response.get("command") != "shutdown" or response.get("command_id") == result.get("command_id"):
+        return
+    result.update(command_id=response["command_id"], command_error=None)
+    try:
+        subprocess.run(["shutdown.exe", "/s", "/t", "0"], check=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        result["command_error"] = str(error)[:500]
+        print(f"종료 요청 실패: {error}", flush=True)
+
+
 def register():
     # 서버로 가는 경로의 LAN IP. UDP connect 자체는 패킷을 보내지 않는다.
     host = socket.gethostbyname(urlsplit(SERVER).hostname)
@@ -56,6 +68,7 @@ def register():
 
 if __name__ == "__main__":
     registered = False
+    result = {}
     try:
         psutil.cpu_percent()  # 첫 호출은 기준값만 설정한다.
         time.sleep(1)
@@ -66,11 +79,12 @@ if __name__ == "__main__":
                     register()
                     registered = True
                 idle = idle_seconds()
-                post(f"/api/agents/{quote(AGENT_ID, safe='')}/status", {
+                response = post(f"/api/agents/{quote(AGENT_ID, safe='')}/status", {
                     "status": "사용중" if idle < IDLE_SECONDS else "부재중",
                     "idle_seconds": idle, "cpu_percent": psutil.cpu_percent(),
-                    "memory_percent": psutil.virtual_memory().percent,
+                    "memory_percent": psutil.virtual_memory().percent, **result,
                 })
+                execute_command(response, result)
             except (OSError, URLError, ValueError) as error:
                 registered = False
                 print(f"통신 실패: {error}", flush=True)
